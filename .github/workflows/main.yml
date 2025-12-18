@@ -1,0 +1,25 @@
+# GitHub Actions Workflow - Currently Disabled
+# 
+# This workflow file is temporarily disabled and will be added back later.
+# To enable, uncomment the content below and customize as needed.
+#
+# Example workflow structure (commented out):
+#
+# name: Build and Test
+# on:
+#   push:
+#     branches: [ main, develop ]
+#   pull_request:
+#     branches: [ main, develop ]
+#
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v3
+#       - name: Set up Java
+#         uses: actions/setup-java@v3
+#         with:
+#           java-version: '11'
+#       - name: Build with Gradle
+#         run: ./gradlew build
