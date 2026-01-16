@@ -1,174 +1,95 @@
-## Dependencies & Versions
+# RealityLib - Simple VR Framework for Meta Quest
 
-### Java/Gradle Dependencies
+A lightweight VR framework that makes it easy to create VR applications for Meta Quest devices. Built on OpenXR, RealityLib provides a simple API where you only need to modify `main.c` to create your VR experience.
 
-| Dependency | Version | Purpose |
-|---|---|---|
-| Android Gradle Plugin | 8.2.0 | Android build system |
-| AndroidX AppCompat | 1.6.1 | Android compatibility library |
+## Features
 
-### Android SDK Configuration
+- **Simple API** - Just modify `main.c` to create your VR game
+- **OpenXR Native** - Direct OpenXR implementation for best performance
+- **Quest Optimized** - Built specifically for Meta Quest 2/3/Pro
+- **Full Controller Support** - Triggers, grips, thumbsticks, buttons, and haptics
+- **Minimal Dependencies** - Only requires Android NDK and OpenXR loader
 
-| Configuration | Version |
-|---|---|
-| Compile SDK | 33 |
-| Min SDK | 26 (Android 8.0 Oreo) |
-| Target SDK | 33 (Android 13) |
-| NDK Version | 29.0.14206865 |
-| CMake Version | 3.22.1 |
-
-### Build Configuration
-
-| Setting | Value |
-|---|---|
-| Java Source Compatibility | Java 11 |
-| Java Target Compatibility | Java 11 |
-| C Standard | C99 |
-| C++ Standard | C++11 |
-| STL Type | c++_shared |
-| Target ABI | arm64-v8a |
-
-### Native Libraries & Headers
-
-| Library | Version | Location |
-|---|---|---|
-| OpenXR SDK | Latest (from deps) | `app/src/main/deps/OpenXR-SDK` |
-| raylib | Latest (from deps) | `app/src/main/deps/raylib` |
-| raymob | Latest (from deps) | `app/src/main/deps/raymob` |
-| Android NDK | 29.0.14206865 | `$ANDROID_SDK_ROOT/ndk/29.0.14206865` |
-
-## System Requirements
-
-- **Android Studio**: Latest version (2024+)
-- **JDK**: Java 11 or higher
-- **Android SDK**: API 33+
-- **Android NDK**: Version 29.0.14206865
-- **CMake**: Version 3.22.1+
-- **Windows/Mac/Linux**: Any OS with Android Studio support
-
-## Setup Instructions
+## Quick Start
 
 ### Prerequisites
 
-1. **Install Android Studio** from [developer.android.com](https://developer.android.com/studio)
+1. **Android SDK** with API level 26+
+2. **Android NDK** version 29.x (r29)
+3. **OpenXR Loader** from Meta Quest SDK
+4. **ADB** for deployment
+5. **Meta Quest** device with Developer Mode enabled
 
-2. **Install Required SDK Components** in Android Studio:
-   - Go to `Tools` → `SDK Manager`
-   - Under the `SDK Platforms` tab:
-     - Check Android 13 (API level 33)
-     - Check Android 8.0 (API level 26) for minimum SDK support
-   - Under the `SDK Tools` tab:
-     - Android NDK (Side by side): Install version **29.0.14206865**
-     - CMake: Install version **3.22.1+**
-     - Android SDK Platform-Tools
-     - Android SDK Build-Tools (latest)
+### Setup on Mac
 
-3. **Configure Local Properties**:
-   - A `local.properties` file should be automatically created in the project root
-   - Verify it contains paths to your Android SDK and NDK:
-     ```properties
-     sdk.dir=/path/to/Android/Sdk
-     ndk.dir=/path/to/Android/Sdk/ndk/29.0.14206865
-     ```
+#### 1. Install Android SDK/NDK
 
-### Clone & Build
-
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/ian-zyh/RealityLibTest.git
-   cd RealityLibTest
-   ```
-
-2. **Initialize Gradle** (first build may take longer):
-   ```bash
-   # On Windows
-   gradlew.bat build
-   
-   # On Mac/Linux
-   ./gradlew build
-   ```
-
-## Building & Running in Android Studio
-
-### Method 1: Using Android Studio UI (Recommended)
-
-1. **Open the Project**:
-   - Open Android Studio
-   - Select `File` → `Open`
-   - Navigate to the `RealityLibTest` project folder and click `OK`
-   - Wait for Gradle sync to complete
-
-2. **Connect an Android Device or Emulator**:
-   - Physical Device: Enable USB Debugging and connect via USB
-   - Emulator: Create an AVD through `Tools` → `AVD Manager` (select API 33)
-
-3. **Build the Project**:
-   - Click `Build` → `Make Project` (or press `Ctrl+F9`)
-   - Wait for the build to complete
-
-4. **Run the Application**:
-   - Click `Run` → `Run 'app'` (or press `Shift+F10`)
-   - Select your target device/emulator
-   - Click `OK`
-
-### Method 2: Using Gradle Command Line
+If you haven't already, install Android Studio or the command-line tools:
 
 ```bash
-# Navigate to project directory
-cd RealityLibTest
+# Using Homebrew
+brew install --cask android-studio
 
-# Debug Build
-./gradlew installDebug
-
-# Release Build
-./gradlew installRelease
-
-# Run on connected device
-adb shell am start -n com.realitylib.app/.MainActivity
+# Or download from: https://developer.android.com/studio
 ```
 
-### Method 3: Build & Deploy APK
+Ensure these environment variables are set in your `~/.zshrc` or `~/.bashrc`:
 
-1. **Build Debug APK**:
-   ```bash
-   ./gradlew assembleDebug
-   ```
-   APK location: `app/build/outputs/apk/debug/app-debug.apk`
+```bash
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export PATH="$PATH:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin"
+```
 
-2. **Build Release APK** (requires signing):
-   ```bash
-   ./gradlew assembleRelease
-   ```
-   APK location: `app/build/outputs/apk/release/app-release.apk`
+Install NDK r29:
+```bash
+sdkmanager "ndk;29.0.14206865"
+```
 
-3. **Install on Device**:
-   ```bash
-   adb install app/build/outputs/apk/debug/app-debug.apk
-   ```
+#### 2. Download OpenXR Loader
 
-## Build Troubleshooting
+The OpenXR loader for Meta Quest must be downloaded from Meta:
 
-### Common Issues
+1. Go to: https://developer.oculus.com/downloads/package/oculus-openxr-mobile-sdk/
+2. Download the latest version (e.g., `ovr-openxr-mobile-sdk-72.0.zip`)
+3. Extract and copy the loader:
 
-1. **NDK not found**:
-   - Verify NDK version 29.0.14206865 is installed
-   - Update `local.properties` with correct NDK path
+```bash
+# After extracting the SDK
+cp /path/to/OpenXR/Libs/Android/arm64-v8a/Release/libopenxr_loader.so \
+   app/src/main/deps/OpenXR-SDK/libs/arm64-v8a/
+```
 
-2. **CMake not found**:
-   - Install CMake 3.22.1+ via SDK Manager
-   - Ensure CMake is in your system PATH
+#### 3. Build the Project
 
-3. **OpenXR headers not found**:
-   - Ensure `app/src/main/deps/OpenXR-SDK` exists with headers in `include/`
-   - Run: `git lfs pull` if using Git LFS for large binary files
+```bash
+# Clean and build
+./gradlew clean assembleDebug
 
-4. **Gradle sync fails**:
-   - Click `File` → `Sync Now` in Android Studio
-   - Check that Gradle is using the correct JDK (Java 11+)
+# Or for release
+./gradlew assembleRelease
+```
 
-5. **Build takes too long**:
-   - Parallel builds are enabled by default in `gradle.properties`
-   - Use incremental builds by changing code in the IDE
+#### 4. Deploy to Quest
+
+1. Connect your Quest via USB
+2. Enable Developer Mode on Quest (Settings → System → Developer)
+3. Allow USB debugging when prompted on the headset
+
+```bash
+# Check device connection
+adb devices
+
+# Install the app
+./gradlew installDebug
+
+# Or manually
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+#### 5. Run the App
+
+The app will appear in your Quest's app library under "Unknown Sources". Put on your headset and launch "RealityLib"!
 
 ## Project Structure
 
@@ -176,21 +97,192 @@ adb shell am start -n com.realitylib.app/.MainActivity
 RealityLibTest/
 ├── app/
 │   ├── src/main/
-│   │   ├── AndroidManifest.xml
-│   │   ├── CMakeLists.txt         # Native build configuration
-│   │   ├── main.c                 # Native entry point
-│   │   ├── deps/
-│   │   │   ├── OpenXR-SDK/        # OpenXR headers & libs
-│   │   │   ├── raylib/            # Graphics library
-│   │   │   ├── raymob/            # Android bindings
-│   │   │   └── Samples/           # Sample frameworks
-│   │   ├── examples/              # Example implementations
-│   │   └── res/                   # Android resources
-│   └── build.gradle               # App build configuration
-├── build.gradle                   # Root build configuration
-├── gradle.properties              # Gradle & feature settings
-├── local.properties               # SDK/NDK paths (local)
-└── README.md                      # This file
+│   │   ├── main.c              # ← YOUR GAME CODE GOES HERE
+│   │   ├── realitylib_vr.h     # VR API header
+│   │   ├── realitylib_vr.c     # VR implementation (OpenXR)
+│   │   ├── CMakeLists.txt      # Build configuration
+│   │   ├── AndroidManifest.xml # Android configuration
+│   │   └── deps/
+│   │       └── OpenXR-SDK/
+│   │           ├── include/    # OpenXR headers (auto-downloaded)
+│   │           └── libs/       # OpenXR loader (manual download)
+│   └── build.gradle
+├── scripts/
+│   └── setup_deps.sh           # Dependency setup script
+├── build.gradle
+├── settings.gradle
+└── README.md
 ```
 
+## API Reference
 
+### Core Functions
+
+```c
+// Initialize VR system - call once at start
+bool InitApp(struct android_app* app);
+
+// Check if app should exit
+bool AppShouldClose(struct android_app* app);
+
+// Begin/End VR rendering frame
+void BeginVRMode(void);
+void EndVRMode(void);
+
+// Sync controller input
+void SyncControllers(void);
+
+// Cleanup - call before exit
+void CloseApp(struct android_app* app);
+```
+
+### Drawing Functions
+
+```c
+// Draw a cube
+void DrawVRCube(Vector3 position, float size, Color color);
+
+// Draw a cuboid (box with different dimensions)
+void DrawVRCuboid(Vector3 position, Vector3 size, Vector3 color);
+
+// Draw a grid on the ground
+void DrawVRGrid(int slices, float spacing);
+
+// Draw a line
+void DrawVRLine3D(Vector3 startPos, Vector3 endPos, Color color);
+
+// Draw coordinate axes
+void DrawVRAxes(Vector3 position, float scale);
+
+// Draw a flat plane
+void DrawVRPlane(Vector3 centerPos, Vector3 size, Color color);
+```
+
+### Input Functions
+
+```c
+// Get controller state
+VRController GetController(ControllerHand hand);  // CONTROLLER_LEFT or CONTROLLER_RIGHT
+
+// Get headset state
+VRHeadset GetHeadset(void);
+
+// Convenience functions
+Vector3 GetVRControllerPosition(int hand);
+float GetVRControllerTrigger(int hand);
+float GetVRControllerGrip(int hand);
+Vector3 GetVRControllerThumbstick(int hand);
+
+// Haptic feedback
+void TriggerVRHaptic(int hand, float amplitude, float duration);
+```
+
+### Types
+
+```c
+typedef struct VRController {
+    Vector3 position;
+    Quaternion orientation;
+    float trigger;          // 0.0 - 1.0
+    float grip;             // 0.0 - 1.0
+    float thumbstickX;      // -1.0 to 1.0
+    float thumbstickY;      // -1.0 to 1.0
+    bool thumbstickClick;
+    bool buttonA;           // A (right) / X (left)
+    bool buttonB;           // B (right) / Y (left)
+    bool isTracking;
+} VRController;
+
+typedef struct VRHeadset {
+    Vector3 position;
+    Quaternion orientation;
+    int displayWidth;
+    int displayHeight;
+} VRHeadset;
+```
+
+## Example: Simple VR World
+
+Here's a minimal example that creates a VR world with floating cubes:
+
+```c
+#include "realitylib_vr.h"
+
+// Called every frame
+void inLoop(struct android_app* app) {
+    // Draw a floor grid
+    DrawVRGrid(20, 1.0f);
+    
+    // Draw some floating cubes
+    for (int i = 0; i < 10; i++) {
+        Vector3 pos = {i * 0.5f - 2.5f, 1.5f, -3.0f};
+        Color color = {255, 50 + i * 20, 50, 255};
+        DrawVRCube(pos, 0.2f, color);
+    }
+    
+    // Draw controllers
+    VRController left = GetController(CONTROLLER_LEFT);
+    VRController right = GetController(CONTROLLER_RIGHT);
+    
+    if (left.isTracking) {
+        DrawVRCube(left.position, 0.05f, BLUE);
+    }
+    if (right.isTracking) {
+        DrawVRCube(right.position, 0.05f, GREEN);
+    }
+}
+
+void android_main(struct android_app* app) {
+    InitApp(app);
+    
+    while (!AppShouldClose(app)) {
+        BeginVRMode();
+        SyncControllers();
+        inLoop(app);
+        EndVRMode();
+    }
+    
+    CloseApp(app);
+}
+```
+
+## Troubleshooting
+
+### Build Errors
+
+**"OpenXR headers not found"**
+- Run `./scripts/setup_deps.sh` or manually download headers from Khronos
+
+**"OpenXR loader not found"**
+- Download the Meta OpenXR Mobile SDK and copy `libopenxr_loader.so` to `deps/OpenXR-SDK/libs/arm64-v8a/`
+
+**"NDK not found"**
+- Install NDK r29: `sdkmanager "ndk;29.0.14206865"`
+
+### Runtime Errors
+
+**App crashes immediately**
+- Check `adb logcat | grep RealityLib` for error messages
+- Ensure OpenXR loader is properly installed
+
+**No display in headset**
+- Verify Developer Mode is enabled
+- Check that the app is launched from "Unknown Sources"
+
+**Controllers not working**
+- Make sure controllers are paired and tracking
+- Check battery level on controllers
+
+## Contributing
+
+Contributions are welcome! Feel free to submit issues and pull requests.
+
+## License
+
+MIT License - see LICENSE file for details.
+
+## Credits
+
+- Built with OpenXR from Khronos Group
+- Meta Quest runtime and SDK
+- Inspired by raylib's simplicity

@@ -2,6 +2,11 @@ plugins {
     id 'com.android.application'
 }
 
+// Create a custom configuration to resolve the OpenXR loader
+configurations {
+    openxrLoader
+}
+
 android {
     namespace 'com.realitylib.app'
     compileSdk 33
@@ -59,5 +64,47 @@ android {
 }
 
 dependencies {
-    implementation 'androidx.appcompat:appcompat:1.6.1'
+    // OpenXR Loader for Android (from Khronos)
+    // Note: No androidx dependencies - this is a pure native app with android:hasCode="false"
+    implementation 'org.khronos.openxr:openxr_loader_for_android:1.1.51'
+    
+    // Also add to our custom configuration so we can extract it
+    openxrLoader 'org.khronos.openxr:openxr_loader_for_android:1.1.51'
 }
+
+// Task to extract the OpenXR loader .so file from the AAR for CMake to link against
+tasks.register('extractOpenXRLoader') {
+    dependsOn configurations.openxrLoader
+    
+    doLast {
+        def outputDir = file("${projectDir}/src/main/deps/OpenXR-SDK/libs")
+        
+        configurations.openxrLoader.resolvedConfiguration.resolvedArtifacts.each { artifact ->
+            def aarFile = artifact.file
+            println "Processing: ${aarFile.name}"
+            
+            copy {
+                from zipTree(aarFile)
+                into outputDir
+                include 'jni/**/*.so'
+                eachFile { file ->
+                    // Flatten: jni/arm64-v8a/lib.so -> arm64-v8a/lib.so
+                    def segments = file.relativePath.segments
+                    if (segments.length > 1 && segments[0] == 'jni') {
+                        file.relativePath = new RelativePath(file.relativePath.isFile(), 
+                            segments.drop(1) as String[])
+                    }
+                }
+                includeEmptyDirs = false
+            }
+        }
+        println "Extracted OpenXR loader to: ${outputDir}"
+    }
+}
+
+// Make sure the loader is extracted before CMake configuration
+tasks.matching { it.name.startsWith('configureCMake') }.configureEach {
+    dependsOn 'extractOpenXRLoader'
+}
+
+preBuild.dependsOn extractOpenXRLoader
