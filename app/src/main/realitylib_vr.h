@@ -245,6 +245,50 @@ Vector3 GetVRControllerThumbstick(int hand);
 void TriggerVRHaptic(int hand, float amplitude, float duration);
 
 // =============================================================================
+// Player Movement Functions
+// =============================================================================
+
+/**
+ * Set the player's world position offset
+ * This offsets all VR rendering to simulate movement
+ * @param position New player position
+ */
+void SetPlayerPosition(Vector3 position);
+
+/**
+ * Get the current player position
+ * @return Current player position
+ */
+Vector3 GetPlayerPosition(void);
+
+/**
+ * Set the player's Y-axis rotation (yaw)
+ * @param yaw Rotation in degrees
+ */
+void SetPlayerYaw(float yaw);
+
+/**
+ * Get the current player Y-axis rotation
+ * @return Current yaw in degrees
+ */
+float GetPlayerYaw(void);
+
+/**
+ * Apply movement relative to player's current orientation
+ * @param forward Forward/backward movement (positive = forward)
+ * @param strafe Left/right movement (positive = right)
+ * @param up Vertical movement (positive = up)
+ */
+void MovePlayer(float forward, float strafe, float up);
+
+/**
+ * Check if player is on the ground (for jump logic)
+ * @param groundHeight The Y position of the ground
+ * @return true if player is on or below ground height
+ */
+bool IsPlayerGrounded(float groundHeight);
+
+// =============================================================================
 // VR Drawing Functions (Simple API)
 // =============================================================================
 

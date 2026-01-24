@@ -31,11 +31,20 @@
 #define NUM_FLOATING_CUBES 30
 #define WORLD_SIZE 10.0f
 
+// Physics constants
+#define GRAVITY -9.8f
+#define JUMP_VELOCITY 4.0f
+#define GROUND_HEIGHT 0.0f
+#define MOVE_SPEED 3.0f
+#define SPRINT_MULTIPLIER 2.0f
+#define TURN_SPEED 45.0f  // Degrees per snap turn
+
 // World state
 typedef struct {
-    // Player position (for movement)
-    Vector3 playerPosition;
-    float playerYaw;  // Rotation around Y axis
+    // Player physics
+    float playerVelocityY;  // Vertical velocity for jump/fall
+    bool isGrounded;
+    bool canJump;
     
     // Floating cubes
     Vector3 cubePositions[NUM_FLOATING_CUBES];
@@ -46,6 +55,12 @@ typedef struct {
     
     // Time tracking
     float time;
+    float deltaTime;
+    
+    // Input state (for detecting button presses)
+    bool snapTurnReady;
+    bool jumpReady;
+    bool spawnReady;
     
     // Initialized flag
     bool initialized;
@@ -86,9 +101,19 @@ static void InitWorld(void) {
     
     LOGI("Initializing VR World...");
     
-    // Player starts at origin
-    world.playerPosition = Vector3Create(0.0f, 0.0f, 0.0f);
-    world.playerYaw = 0.0f;
+    // Player starts at origin, on the ground
+    SetPlayerPosition(Vector3Create(0.0f, 0.0f, 0.0f));
+    SetPlayerYaw(0.0f);
+    
+    // Player physics
+    world.playerVelocityY = 0.0f;
+    world.isGrounded = true;
+    world.canJump = true;
+    
+    // Input states
+    world.snapTurnReady = true;
+    world.jumpReady = true;
+    world.spawnReady = true;
     
     // Initialize floating cubes in a sphere around the player
     for (int i = 0; i < NUM_FLOATING_CUBES; i++) {
@@ -110,6 +135,7 @@ static void InitWorld(void) {
     }
     
     world.time = 0.0f;
+    world.deltaTime = 1.0f / 72.0f;  // Approximate at 72Hz
     world.initialized = true;
     
     LOGI("VR World initialized with %d floating cubes", NUM_FLOATING_CUBES);
@@ -135,6 +161,8 @@ static void DrawEnvironment(void) {
 }
 
 static void DrawFloatingCubes(void) {
+    Vector3 playerPos = GetPlayerPosition();
+    
     for (int i = 0; i < NUM_FLOATING_CUBES; i++) {
         // Add bobbing motion
         float bob = sinf(world.time * 2.0f + world.cubeBobPhase[i]) * 0.1f;
@@ -143,7 +171,7 @@ static void DrawFloatingCubes(void) {
         pos.y += bob;
         
         // Different sizes based on distance (closer = smaller for variety)
-        float distance = Vector3Distance(pos, world.playerPosition);
+        float distance = Vector3Distance(pos, playerPos);
         float size = 0.1f + (distance / WORLD_SIZE) * 0.2f;
         
         DrawVRCube(pos, size, world.cubeColors[i]);
@@ -246,6 +274,34 @@ static void DrawSkybox(void) {
 }
 
 // =============================================================================
+// Physics Update
+// =============================================================================
+
+static void UpdatePhysics(void) {
+    Vector3 playerPos = GetPlayerPosition();
+    
+    // Apply gravity if not grounded
+    if (!world.isGrounded) {
+        world.playerVelocityY += GRAVITY * world.deltaTime;
+    }
+    
+    // Apply vertical velocity
+    playerPos.y += world.playerVelocityY * world.deltaTime;
+    
+    // Ground collision
+    if (playerPos.y <= GROUND_HEIGHT) {
+        playerPos.y = GROUND_HEIGHT;
+        world.playerVelocityY = 0.0f;
+        world.isGrounded = true;
+    } else {
+        world.isGrounded = false;
+    }
+    
+    // Update player position
+    SetPlayerPosition(playerPos);
+}
+
+// =============================================================================
 // Input Handling
 // =============================================================================
 
@@ -254,48 +310,116 @@ static void HandleInput(void) {
     VRController rightController = GetController(CONTROLLER_RIGHT);
     VRHeadset headset = GetHeadset();
     
-    // Movement speed
-    float moveSpeed = 0.02f;
-    
-    // Left thumbstick: Move forward/backward and strafe
+    // =========================================================================
+    // LEFT THUMBSTICK: Movement (forward/back/strafe)
+    // =========================================================================
     if (leftController.isTracking) {
-        float moveX = leftController.thumbstickX;
-        float moveZ = leftController.thumbstickY;
+        float moveX = leftController.thumbstickX;  // Strafe
+        float moveZ = leftController.thumbstickY;  // Forward/back
         
-        if (fabsf(moveX) > 0.1f || fabsf(moveZ) > 0.1f) {
-            // Get headset forward direction (projected onto XZ plane)
-            Vector3 forward = QuaternionForward(headset.orientation);
-            forward.y = 0;
-            forward = Vector3Normalize(forward);
+        // Apply deadzone
+        if (fabsf(moveX) < 0.1f) moveX = 0.0f;
+        if (fabsf(moveZ) < 0.1f) moveZ = 0.0f;
+        
+        if (fabsf(moveX) > 0.0f || fabsf(moveZ) > 0.0f) {
+            // Calculate movement speed (sprint if trigger held)
+            float speed = MOVE_SPEED;
+            if (leftController.trigger > 0.5f) {
+                speed *= SPRINT_MULTIPLIER;
+            }
             
-            Vector3 right = QuaternionRight(headset.orientation);
-            right.y = 0;
-            right = Vector3Normalize(right);
+            // Get player yaw to determine movement direction
+            float playerYaw = GetPlayerYaw();
+            float yawRad = playerYaw * PI / 180.0f;
+            
+            // Also factor in headset look direction for more natural movement
+            Vector3 headForward = QuaternionForward(headset.orientation);
+            float headYaw = atan2f(-headForward.x, -headForward.z);
+            
+            // Combined yaw (player + head)
+            float combinedYaw = yawRad + headYaw;
+            
+            // Calculate movement delta
+            float dx = -sinf(combinedYaw) * (-moveZ) + cosf(combinedYaw) * moveX;
+            float dz = -cosf(combinedYaw) * (-moveZ) - sinf(combinedYaw) * moveX;
             
             // Apply movement
-            world.playerPosition = Vector3Add(world.playerPosition,
-                Vector3Scale(forward, -moveZ * moveSpeed));
-            world.playerPosition = Vector3Add(world.playerPosition,
-                Vector3Scale(right, moveX * moveSpeed));
+            Vector3 playerPos = GetPlayerPosition();
+            playerPos.x += dx * speed * world.deltaTime;
+            playerPos.z += dz * speed * world.deltaTime;
+            SetPlayerPosition(playerPos);
         }
     }
     
-    // Right thumbstick: Snap turn
-    static bool canTurn = true;
+    // =========================================================================
+    // RIGHT THUMBSTICK: Snap Turn (left/right)
+    // =========================================================================
     if (rightController.isTracking) {
         float turnX = rightController.thumbstickX;
         
-        if (fabsf(turnX) > 0.7f && canTurn) {
-            world.playerYaw += (turnX > 0) ? -45.0f : 45.0f;
-            canTurn = false;
+        // Snap turn when pushed past threshold
+        if (fabsf(turnX) > 0.7f && world.snapTurnReady) {
+            float currentYaw = GetPlayerYaw();
+            if (turnX > 0) {
+                SetPlayerYaw(currentYaw - TURN_SPEED);  // Turn right
+            } else {
+                SetPlayerYaw(currentYaw + TURN_SPEED);  // Turn left
+            }
+            world.snapTurnReady = false;
             TriggerVRHaptic(CONTROLLER_RIGHT, 0.3f, 0.05f);
         }
+        
+        // Reset when thumbstick returns to center
         if (fabsf(turnX) < 0.3f) {
-            canTurn = true;
+            world.snapTurnReady = true;
         }
     }
     
-    // Grip buttons: Haptic feedback test
+    // =========================================================================
+    // A BUTTON (Right Controller): Jump
+    // =========================================================================
+    if (rightController.buttonA && world.jumpReady && world.isGrounded) {
+        world.playerVelocityY = JUMP_VELOCITY;
+        world.isGrounded = false;
+        world.jumpReady = false;
+        TriggerVRHaptic(CONTROLLER_RIGHT, 0.5f, 0.1f);
+        LOGI("Jump! Velocity: %.2f", world.playerVelocityY);
+    }
+    if (!rightController.buttonA) {
+        world.jumpReady = true;
+    }
+    
+    // =========================================================================
+    // B BUTTON (Right Controller): Spawn cube at controller
+    // =========================================================================
+    if (rightController.buttonB && world.spawnReady) {
+        // Find a random cube and move it to controller position
+        int cubeIndex = (int)(RandomFloat() * NUM_FLOATING_CUBES);
+        
+        // Get controller position in world space (need to account for player offset)
+        Vector3 playerPos = GetPlayerPosition();
+        float playerYaw = GetPlayerYaw() * PI / 180.0f;
+        
+        // Transform controller position by player offset
+        Vector3 ctrlPos = rightController.position;
+        Vector3 worldPos = {
+            ctrlPos.x * cosf(playerYaw) - ctrlPos.z * sinf(playerYaw) + playerPos.x,
+            ctrlPos.y + playerPos.y,
+            ctrlPos.x * sinf(playerYaw) + ctrlPos.z * cosf(playerYaw) + playerPos.z
+        };
+        
+        world.cubePositions[cubeIndex] = worldPos;
+        world.cubeColors[cubeIndex] = RandomColor();
+        world.spawnReady = false;
+        TriggerVRHaptic(CONTROLLER_RIGHT, 1.0f, 0.1f);
+    }
+    if (!rightController.buttonB) {
+        world.spawnReady = true;
+    }
+    
+    // =========================================================================
+    // GRIP BUTTONS: Haptic feedback test
+    // =========================================================================
     if (leftController.grip > 0.5f) {
         TriggerVRHaptic(CONTROLLER_LEFT, leftController.grip * 0.5f, 0.016f);
     }
@@ -303,23 +427,51 @@ static void HandleInput(void) {
         TriggerVRHaptic(CONTROLLER_RIGHT, rightController.grip * 0.5f, 0.016f);
     }
     
-    // A button: Spawn a cube at right controller position
-    static bool aButtonWasPressed = false;
-    if (rightController.buttonA && !aButtonWasPressed) {
-        // Find an empty slot and place a new cube
-        for (int i = 0; i < NUM_FLOATING_CUBES; i++) {
-            // Reset a random cube to controller position
-            if (RandomFloat() < 0.1f) {
-                world.cubePositions[i] = rightController.position;
-                world.cubeColors[i] = RandomColor();
-                TriggerVRHaptic(CONTROLLER_RIGHT, 1.0f, 0.1f);
-                break;
-            }
-        }
-        aButtonWasPressed = true;
+    // =========================================================================
+    // X BUTTON (Left Controller): Teleport to origin / Reset position
+    // =========================================================================
+    static bool xButtonReady = true;
+    if (leftController.buttonA && xButtonReady) {  // buttonA on left = X button
+        SetPlayerPosition(Vector3Create(0.0f, 0.0f, 0.0f));
+        SetPlayerYaw(0.0f);
+        world.playerVelocityY = 0.0f;
+        world.isGrounded = true;
+        xButtonReady = false;
+        TriggerVRHaptic(CONTROLLER_LEFT, 1.0f, 0.2f);
+        LOGI("Teleported to origin");
     }
-    if (!rightController.buttonA) {
-        aButtonWasPressed = false;
+    if (!leftController.buttonA) {
+        xButtonReady = true;
+    }
+    
+    // =========================================================================
+    // Y BUTTON (Left Controller): Toggle fly mode (no gravity)
+    // =========================================================================
+    static bool flyMode = false;
+    static bool yButtonReady = true;
+    if (leftController.buttonB && yButtonReady) {  // buttonB on left = Y button
+        flyMode = !flyMode;
+        yButtonReady = false;
+        TriggerVRHaptic(CONTROLLER_LEFT, 0.5f, 0.15f);
+        LOGI("Fly mode: %s", flyMode ? "ON" : "OFF");
+        
+        if (flyMode) {
+            world.playerVelocityY = 0.0f;
+        }
+    }
+    if (!leftController.buttonB) {
+        yButtonReady = true;
+    }
+    
+    // Fly mode movement (use right thumbstick Y for up/down)
+    if (flyMode && rightController.isTracking) {
+        float flyY = rightController.thumbstickY;
+        if (fabsf(flyY) > 0.1f) {
+            Vector3 playerPos = GetPlayerPosition();
+            playerPos.y += flyY * MOVE_SPEED * world.deltaTime;
+            SetPlayerPosition(playerPos);
+            world.isGrounded = false;  // Not grounded while flying
+        }
     }
 }
 
@@ -332,10 +484,14 @@ void inLoop(struct android_app* app) {
     InitWorld();
     
     // Update time (approximate 72Hz)
-    world.time += 1.0f / 72.0f;
+    world.deltaTime = 1.0f / 72.0f;
+    world.time += world.deltaTime;
     
-    // Handle input
+    // Handle input first
     HandleInput();
+    
+    // Update physics (gravity, jumping)
+    UpdatePhysics();
     
     // Draw the VR scene
     // Note: Drawing happens automatically for both eyes
@@ -350,6 +506,14 @@ void inLoop(struct android_app* app) {
     
     // Draw controllers
     DrawControllers();
+    
+    // Debug: Log player position occasionally
+    static int frameCount = 0;
+    if (++frameCount % 500 == 0) {
+        Vector3 pos = GetPlayerPosition();
+        LOGI("Player pos: (%.2f, %.2f, %.2f) Yaw: %.1f Grounded: %s",
+             pos.x, pos.y, pos.z, GetPlayerYaw(), world.isGrounded ? "yes" : "no");
+    }
 }
 
 // =============================================================================
