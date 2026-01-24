@@ -37,7 +37,7 @@
 #define GROUND_HEIGHT 0.0f
 #define MOVE_SPEED 3.0f
 #define SPRINT_MULTIPLIER 2.0f
-#define TURN_SPEED 45.0f  // Degrees per snap turn
+#define SMOOTH_TURN_SPEED 90.0f  // Degrees per second for smooth turning
 
 // World state
 typedef struct {
@@ -58,7 +58,6 @@ typedef struct {
     float deltaTime;
     
     // Input state (for detecting button presses)
-    bool snapTurnReady;
     bool jumpReady;
     bool spawnReady;
     
@@ -111,7 +110,6 @@ static void InitWorld(void) {
     world.canJump = true;
     
     // Input states
-    world.snapTurnReady = true;
     world.jumpReady = true;
     world.spawnReady = true;
     
@@ -314,8 +312,8 @@ static void HandleInput(void) {
     // LEFT THUMBSTICK: Movement (forward/back/strafe)
     // =========================================================================
     if (leftController.isTracking) {
-        float moveX = leftController.thumbstickX;  // Strafe
-        float moveZ = leftController.thumbstickY;  // Forward/back
+        float moveX = leftController.thumbstickX;  // Strafe (positive = right)
+        float moveZ = leftController.thumbstickY;  // Forward/back (positive = forward)
         
         // Apply deadzone
         if (fabsf(moveX) < 0.1f) moveX = 0.0f;
@@ -340,8 +338,10 @@ static void HandleInput(void) {
             float combinedYaw = yawRad + headYaw;
             
             // Calculate movement delta
-            float dx = -sinf(combinedYaw) * (-moveZ) + cosf(combinedYaw) * moveX;
-            float dz = -cosf(combinedYaw) * (-moveZ) - sinf(combinedYaw) * moveX;
+            // Forward: -Z direction in OpenGL, moveZ positive = forward
+            // Strafe: +X is right, -X is left, moveX positive = right
+            float dx = sinf(combinedYaw) * moveZ - cosf(combinedYaw) * moveX;
+            float dz = cosf(combinedYaw) * moveZ + sinf(combinedYaw) * moveX;
             
             // Apply movement
             Vector3 playerPos = GetPlayerPosition();
@@ -352,26 +352,21 @@ static void HandleInput(void) {
     }
     
     // =========================================================================
-    // RIGHT THUMBSTICK: Snap Turn (left/right)
+    // RIGHT THUMBSTICK: Smooth Turn (left/right)
     // =========================================================================
     if (rightController.isTracking) {
         float turnX = rightController.thumbstickX;
         
-        // Snap turn when pushed past threshold
-        if (fabsf(turnX) > 0.7f && world.snapTurnReady) {
-            float currentYaw = GetPlayerYaw();
-            if (turnX > 0) {
-                SetPlayerYaw(currentYaw - TURN_SPEED);  // Turn right
-            } else {
-                SetPlayerYaw(currentYaw + TURN_SPEED);  // Turn left
-            }
-            world.snapTurnReady = false;
-            TriggerVRHaptic(CONTROLLER_RIGHT, 0.3f, 0.05f);
-        }
+        // Apply deadzone
+        if (fabsf(turnX) < 0.15f) turnX = 0.0f;
         
-        // Reset when thumbstick returns to center
-        if (fabsf(turnX) < 0.3f) {
-            world.snapTurnReady = true;
+        // Smooth continuous turning
+        if (fabsf(turnX) > 0.0f) {
+            float currentYaw = GetPlayerYaw();
+            // turnX positive = push right = turn right (decrease yaw)
+            // turnX negative = push left = turn left (increase yaw)
+            float turnAmount = -turnX * SMOOTH_TURN_SPEED * world.deltaTime;
+            SetPlayerYaw(currentYaw + turnAmount);
         }
     }
     
