@@ -421,6 +421,12 @@ Vector3 QuaternionUp(Quaternion q);
  */
 void inLoop(struct android_app* app);
 
+// =============================================================================
+// Include Hand Tracking Module
+// =============================================================================
+
+#include "realitylib_hands.h"
+
 #ifdef __cplusplus
 }
 #endif

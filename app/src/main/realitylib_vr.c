@@ -107,6 +107,31 @@ typedef struct {
 
 static VRState vrState = {0};
 
+// =============================================================================
+// Accessor Functions for Hand Tracking Module
+// =============================================================================
+
+XrInstance GetXrInstance(void) {
+    return vrState.instance;
+}
+
+XrSession GetXrSession(void) {
+    return vrState.session;
+}
+
+XrSpace GetXrStageSpace(void) {
+    return vrState.stageSpace;
+}
+
+XrTime GetPredictedDisplayTime(void) {
+    return vrState.predictedDisplayTime;
+}
+
+bool IsVRSessionRunning(void) {
+    return vrState.sessionRunning;
+}
+
+// =============================================================================
 // OpenGL resources (forward declared, initialized later)
 static GLuint shaderProgram = 0;
 static GLint uniformMVP = -1;
@@ -514,11 +539,45 @@ static bool InitializeOpenXR(void) {
         xrInitializeLoader((XrLoaderInitInfoBaseHeaderKHR*)&loaderInfo);
     }
     
-    // Get required extensions
+    // Get required extensions (hand tracking is optional but requested)
     const char* extensions[] = {
         XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
         XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
+        XR_EXT_HAND_TRACKING_EXTENSION_NAME,  // Optional: hand tracking support
     };
+    
+    // Check which extensions are available
+    uint32_t availableExtCount = 0;
+    xrEnumerateInstanceExtensionProperties(NULL, 0, &availableExtCount, NULL);
+    XrExtensionProperties* availableExts = malloc(availableExtCount * sizeof(XrExtensionProperties));
+    for (uint32_t i = 0; i < availableExtCount; i++) {
+        availableExts[i].type = XR_TYPE_EXTENSION_PROPERTIES;
+        availableExts[i].next = NULL;
+    }
+    xrEnumerateInstanceExtensionProperties(NULL, availableExtCount, &availableExtCount, availableExts);
+    
+    // Build list of extensions to actually enable (only those available)
+    const char* enabledExtensions[16];
+    uint32_t enabledExtCount = 0;
+    
+    // Always add required extensions
+    enabledExtensions[enabledExtCount++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
+    enabledExtensions[enabledExtCount++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
+    
+    // Check if hand tracking is available
+    bool handTrackingAvailable = false;
+    for (uint32_t i = 0; i < availableExtCount; i++) {
+        if (strcmp(availableExts[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME) == 0) {
+            handTrackingAvailable = true;
+            enabledExtensions[enabledExtCount++] = XR_EXT_HAND_TRACKING_EXTENSION_NAME;
+            LOGI("Hand tracking extension available - enabling");
+            break;
+        }
+    }
+    if (!handTrackingAvailable) {
+        LOGI("Hand tracking extension not available on this device");
+    }
+    free(availableExts);
     
     // Create instance
     XrInstanceCreateInfoAndroidKHR androidInfo = {
@@ -541,8 +600,8 @@ static bool InitializeOpenXR(void) {
         },
         .enabledApiLayerCount = 0,
         .enabledApiLayerNames = NULL,
-        .enabledExtensionCount = sizeof(extensions) / sizeof(extensions[0]),
-        .enabledExtensionNames = extensions
+        .enabledExtensionCount = enabledExtCount,
+        .enabledExtensionNames = enabledExtensions
     };
     
     XrResult result = xrCreateInstance(&createInfo, &vrState.instance);
