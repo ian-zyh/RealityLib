@@ -1,0 +1,28 @@
+flowchart LR
+  subgraph P["Android app process (NativeActivity)"]
+    A["App/Game Loop<br/>app/src/main/main.c<br/>android_main() + inLoop()"]
+    V["RealityLib Core VR Runtime<br/>app/src/main/realitylib_vr.c<br/>VRState (global)"]
+    H["Hand Tracking Module<br/>app/src/main/realitylib_hands.c<br/>HandTrackingState (global)"]
+    R["Deferred Renderer<br/>Draw Command Buffer + GLES<br/>(drawCommands + RenderEye)"]
+  end
+
+  subgraph S["Quest system / platform"]
+    L["OpenXR Loader<br/>libopenxr_loader.so"]
+    X["OpenXR Runtime<br/>(system implementation)"]
+    O["Android/Quest OS<br/>(event loop, process lifecycle)"]
+    G["GPU / Display"]
+    D["HMD sensors + Controllers/Hands<br/>+ Haptics"]
+  end
+
+  A -- "C API calls: InitApp, BeginVRMode, SyncControllers, Draw*, EndVRMode" --> V
+  A -- "C API calls: InitHandTracking, UpdateHandTracking, GetHand, IsHandTracked" --> H
+  H -- "Shared-state accessors: GetXrInstance, GetXrSession, GetXrStageSpace, GetPredictedDisplayTime" --> V
+
+  V -- "Records draw commands" --> R
+  R -- "GLES rendering into swapchain images" --> G
+
+  V -- "OpenXR API: xr* (session, swapchains, actions, locate, frame submit)" --> L --> X
+  H -- "OpenXR extension API: xrCreateHandTrackerEXT, xrLocateHandJointsEXT" --> X
+
+  V -- "Android looper: ALooper_pollOnce()" --> O
+  X -- "Tracking + composition + input + haptics" --> D
