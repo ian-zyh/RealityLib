@@ -28,6 +28,7 @@ endif()
 set(REALITYLIB_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/realitylib_vr.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/realitylib_hands.c
 )
 
 # Add android_native_app_glue

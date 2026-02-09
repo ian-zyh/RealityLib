@@ -8,6 +8,7 @@ A lightweight VR framework that makes it easy to create VR applications for Meta
 - **OpenXR Native** - Direct OpenXR implementation for best performance
 - **Quest Optimized** - Built specifically for Meta Quest 2/3/Pro
 - **Full Controller Support** - Triggers, grips, thumbsticks, buttons, and haptics
+- **Hand Tracking** - Full skeletal hand tracking with gesture detection (pinch, fist, point)
 - **Minimal Dependencies** - Only requires Android NDK and OpenXR loader
 
 ## Quick Start
@@ -98,8 +99,10 @@ RealityLibTest/
 ├── app/
 │   ├── src/main/
 │   │   ├── main.c              # ← YOUR GAME CODE GOES HERE
-│   │   ├── realitylib_vr.h     # VR API header
+│   │   ├── realitylib_vr.h     # VR API header (includes hand tracking)
 │   │   ├── realitylib_vr.c     # VR implementation (OpenXR)
+│   │   ├── realitylib_hands.h  # Hand tracking API header
+│   │   ├── realitylib_hands.c  # Hand tracking implementation
 │   │   ├── CMakeLists.txt      # Build configuration
 │   │   ├── AndroidManifest.xml # Android configuration
 │   │   └── deps/
@@ -177,6 +180,65 @@ Vector3 GetVRControllerThumbstick(int hand);
 void TriggerVRHaptic(int hand, float amplitude, float duration);
 ```
 
+### Hand Tracking Functions
+
+```c
+// Initialize and shutdown
+bool InitHandTracking(void);       // Call after InitApp()
+void ShutdownHandTracking(void);   // Call before CloseApp()
+bool IsHandTrackingAvailable(void);
+bool IsHandTrackingActive(void);
+
+// Per-frame update
+void UpdateHandTracking(void);     // Call each frame
+
+// Get hand data
+VRHand GetHand(ControllerHand hand);
+VRHand GetLeftHand(void);
+VRHand GetRightHand(void);
+bool IsHandTracked(ControllerHand hand);
+
+// Get joint positions (26 joints per hand)
+Vector3 GetHandJointPosition(ControllerHand hand, HandJoint joint);
+Vector3 GetThumbTip(ControllerHand hand);
+Vector3 GetIndexTip(ControllerHand hand);
+Vector3 GetPalmPosition(ControllerHand hand);
+Vector3 GetWristPosition(ControllerHand hand);
+
+// Gesture detection
+bool IsHandPinching(ControllerHand hand);
+float GetPinchStrength(ControllerHand hand);  // 0.0 to 1.0
+Vector3 GetPinchPosition(ControllerHand hand);
+bool IsHandFist(ControllerHand hand);
+bool IsHandPointing(ControllerHand hand);
+Vector3 GetPointingDirection(ControllerHand hand);
+bool IsHandOpen(ControllerHand hand);
+
+// Visualization helpers
+void DrawHandSkeleton(ControllerHand hand, Color color);
+void DrawHandJoints(ControllerHand hand, Color color);
+```
+
+### Hand Joint Indices
+
+```c
+typedef enum {
+    HAND_JOINT_PALM = 0,
+    HAND_JOINT_WRIST = 1,
+    HAND_JOINT_THUMB_METACARPAL = 2,
+    HAND_JOINT_THUMB_PROXIMAL = 3,
+    HAND_JOINT_THUMB_DISTAL = 4,
+    HAND_JOINT_THUMB_TIP = 5,
+    HAND_JOINT_INDEX_METACARPAL = 6,
+    HAND_JOINT_INDEX_PROXIMAL = 7,
+    HAND_JOINT_INDEX_INTERMEDIATE = 8,
+    HAND_JOINT_INDEX_DISTAL = 9,
+    HAND_JOINT_INDEX_TIP = 10,
+    // ... (26 total joints per hand)
+    HAND_JOINT_COUNT = 26
+} HandJoint;
+```
+
 ### Types
 
 ```c
@@ -246,6 +308,75 @@ void android_main(struct android_app* app) {
 }
 ```
 
+## Example: Hand Tracking
+
+Here's an example showing how to use hand tracking:
+
+```c
+#include "realitylib_vr.h"
+
+bool handTrackingEnabled = false;
+
+void inLoop(struct android_app* app) {
+    // Update hand tracking
+    if (handTrackingEnabled) {
+        UpdateHandTracking();
+    }
+    
+    // Draw floor
+    DrawVRGrid(20, 1.0f);
+    
+    // Draw hands if tracking
+    if (handTrackingEnabled) {
+        // Draw left hand skeleton (cyan)
+        if (IsHandTracked(CONTROLLER_LEFT)) {
+            DrawHandSkeleton(CONTROLLER_LEFT, SKYBLUE);
+            
+            // Show pinch indicator
+            if (IsHandPinching(CONTROLLER_LEFT)) {
+                Vector3 pinchPos = GetPinchPosition(CONTROLLER_LEFT);
+                DrawVRSphere(pinchPos, 0.02f, YELLOW);
+            }
+        }
+        
+        // Draw right hand skeleton (green)
+        if (IsHandTracked(CONTROLLER_RIGHT)) {
+            DrawHandSkeleton(CONTROLLER_RIGHT, LIME);
+            
+            // Spawn cube when pinching
+            static bool pinchReady = true;
+            if (IsHandPinching(CONTROLLER_RIGHT) && pinchReady) {
+                Vector3 pos = GetPinchPosition(CONTROLLER_RIGHT);
+                // ... spawn cube at pos
+                pinchReady = false;
+            }
+            if (!IsHandPinching(CONTROLLER_RIGHT)) {
+                pinchReady = true;
+            }
+        }
+    }
+}
+
+void android_main(struct android_app* app) {
+    InitApp(app);
+    
+    // Initialize hand tracking (optional - gracefully fails if unavailable)
+    handTrackingEnabled = InitHandTracking();
+    
+    while (!AppShouldClose(app)) {
+        BeginVRMode();
+        SyncControllers();
+        inLoop(app);
+        EndVRMode();
+    }
+    
+    if (handTrackingEnabled) {
+        ShutdownHandTracking();
+    }
+    CloseApp(app);
+}
+```
+
 ## Troubleshooting
 
 ### Build Errors
@@ -272,6 +403,12 @@ void android_main(struct android_app* app) {
 **Controllers not working**
 - Make sure controllers are paired and tracking
 - Check battery level on controllers
+
+**Hand tracking not working**
+- Ensure hand tracking is enabled in Quest settings (Settings → Movement Tracking → Hand & Body Tracking)
+- Put down controllers - Quest will automatically switch to hand tracking
+- Check logs with `adb logcat | grep RealityLib_Hands` for error messages
+- Hand tracking requires good lighting conditions
 
 ## Contributing
 

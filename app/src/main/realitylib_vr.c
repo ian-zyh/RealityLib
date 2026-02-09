@@ -98,11 +98,40 @@ typedef struct {
     Matrix currentViewMatrix;
     Matrix currentProjectionMatrix;
     
+    // Player position offset (for locomotion)
+    Vector3 playerPosition;
+    float playerYaw;  // Degrees
+    
     bool initialized;
 } VRState;
 
 static VRState vrState = {0};
 
+// =============================================================================
+// Accessor Functions for Hand Tracking Module
+// =============================================================================
+
+XrInstance GetXrInstance(void) {
+    return vrState.instance;
+}
+
+XrSession GetXrSession(void) {
+    return vrState.session;
+}
+
+XrSpace GetXrStageSpace(void) {
+    return vrState.stageSpace;
+}
+
+XrTime GetPredictedDisplayTime(void) {
+    return vrState.predictedDisplayTime;
+}
+
+bool IsVRSessionRunning(void) {
+    return vrState.sessionRunning;
+}
+
+// =============================================================================
 // OpenGL resources (forward declared, initialized later)
 static GLuint shaderProgram = 0;
 static GLint uniformMVP = -1;
@@ -341,24 +370,72 @@ static Matrix CreateProjectionMatrix(XrFovf fov, float nearZ, float farZ) {
     return m;
 }
 
+static Matrix CreateRotationY(float angleRadians) {
+    Matrix m = {
+        cosf(angleRadians), 0.0f, sinf(angleRadians), 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        -sinf(angleRadians), 0.0f, cosf(angleRadians), 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    };
+    return m;
+}
+
+static Matrix CreateTranslation(float x, float y, float z) {
+    Matrix m = {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        x, y, z, 1.0f
+    };
+    return m;
+}
+
 static Matrix CreateViewMatrix(XrPosef pose) {
+    // First, create the base view matrix from headset pose
     // Invert the pose for view matrix
     Quaternion q = {-pose.orientation.x, -pose.orientation.y, -pose.orientation.z, pose.orientation.w};
-    Matrix rot = QuaternionToMatrix(q);
+    Matrix headsetRot = QuaternionToMatrix(q);
     
-    // Transform position by inverted rotation
-    Vector3 pos = {-pose.position.x, -pose.position.y, -pose.position.z};
-    Vector3 transformedPos = {
-        rot.m0 * pos.x + rot.m4 * pos.y + rot.m8 * pos.z,
-        rot.m1 * pos.x + rot.m5 * pos.y + rot.m9 * pos.z,
-        rot.m2 * pos.x + rot.m6 * pos.y + rot.m10 * pos.z
+    // Get headset position (will be combined with player offset)
+    Vector3 headsetPos = {pose.position.x, pose.position.y, pose.position.z};
+    
+    // Apply player yaw rotation
+    float playerYawRad = vrState.playerYaw * PI / 180.0f;
+    
+    // Rotate headset position around player yaw
+    float cosYaw = cosf(playerYawRad);
+    float sinYaw = sinf(playerYawRad);
+    Vector3 rotatedHeadsetPos = {
+        headsetPos.x * cosYaw - headsetPos.z * sinYaw,
+        headsetPos.y,
+        headsetPos.x * sinYaw + headsetPos.z * cosYaw
     };
     
-    rot.m12 = transformedPos.x;
-    rot.m13 = transformedPos.y;
-    rot.m14 = transformedPos.z;
+    // Combine with player position offset
+    Vector3 finalPos = {
+        -(rotatedHeadsetPos.x + vrState.playerPosition.x),
+        -(rotatedHeadsetPos.y + vrState.playerPosition.y),
+        -(rotatedHeadsetPos.z + vrState.playerPosition.z)
+    };
     
-    return rot;
+    // Create player yaw rotation matrix (inverted for view)
+    Matrix playerYawMatrix = CreateRotationY(-playerYawRad);
+    
+    // Combine rotations: headset rotation * player yaw rotation
+    Matrix combinedRot = MatrixMultiply(headsetRot, playerYawMatrix);
+    
+    // Transform final position by combined rotation
+    Vector3 transformedPos = {
+        combinedRot.m0 * finalPos.x + combinedRot.m4 * finalPos.y + combinedRot.m8 * finalPos.z,
+        combinedRot.m1 * finalPos.x + combinedRot.m5 * finalPos.y + combinedRot.m9 * finalPos.z,
+        combinedRot.m2 * finalPos.x + combinedRot.m6 * finalPos.y + combinedRot.m10 * finalPos.z
+    };
+    
+    combinedRot.m12 = transformedPos.x;
+    combinedRot.m13 = transformedPos.y;
+    combinedRot.m14 = transformedPos.z;
+    
+    return combinedRot;
 }
 
 // =============================================================================
@@ -462,11 +539,45 @@ static bool InitializeOpenXR(void) {
         xrInitializeLoader((XrLoaderInitInfoBaseHeaderKHR*)&loaderInfo);
     }
     
-    // Get required extensions
+    // Get required extensions (hand tracking is optional but requested)
     const char* extensions[] = {
         XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
         XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
+        XR_EXT_HAND_TRACKING_EXTENSION_NAME,  // Optional: hand tracking support
     };
+    
+    // Check which extensions are available
+    uint32_t availableExtCount = 0;
+    xrEnumerateInstanceExtensionProperties(NULL, 0, &availableExtCount, NULL);
+    XrExtensionProperties* availableExts = malloc(availableExtCount * sizeof(XrExtensionProperties));
+    for (uint32_t i = 0; i < availableExtCount; i++) {
+        availableExts[i].type = XR_TYPE_EXTENSION_PROPERTIES;
+        availableExts[i].next = NULL;
+    }
+    xrEnumerateInstanceExtensionProperties(NULL, availableExtCount, &availableExtCount, availableExts);
+    
+    // Build list of extensions to actually enable (only those available)
+    const char* enabledExtensions[16];
+    uint32_t enabledExtCount = 0;
+    
+    // Always add required extensions
+    enabledExtensions[enabledExtCount++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
+    enabledExtensions[enabledExtCount++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
+    
+    // Check if hand tracking is available
+    bool handTrackingAvailable = false;
+    for (uint32_t i = 0; i < availableExtCount; i++) {
+        if (strcmp(availableExts[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME) == 0) {
+            handTrackingAvailable = true;
+            enabledExtensions[enabledExtCount++] = XR_EXT_HAND_TRACKING_EXTENSION_NAME;
+            LOGI("Hand tracking extension available - enabling");
+            break;
+        }
+    }
+    if (!handTrackingAvailable) {
+        LOGI("Hand tracking extension not available on this device");
+    }
+    free(availableExts);
     
     // Create instance
     XrInstanceCreateInfoAndroidKHR androidInfo = {
@@ -489,8 +600,8 @@ static bool InitializeOpenXR(void) {
         },
         .enabledApiLayerCount = 0,
         .enabledApiLayerNames = NULL,
-        .enabledExtensionCount = sizeof(extensions) / sizeof(extensions[0]),
-        .enabledExtensionNames = extensions
+        .enabledExtensionCount = enabledExtCount,
+        .enabledExtensionNames = enabledExtensions
     };
     
     XrResult result = xrCreateInstance(&createInfo, &vrState.instance);
@@ -1386,6 +1497,44 @@ void TriggerVRHaptic(int hand, float amplitude, float duration) {
     };
     
     xrApplyHapticFeedback(vrState.session, &hapticInfo, (XrHapticBaseHeader*)&vibration);
+}
+
+// =============================================================================
+// Player Movement Implementation
+// =============================================================================
+
+void SetPlayerPosition(Vector3 position) {
+    vrState.playerPosition = position;
+}
+
+Vector3 GetPlayerPosition(void) {
+    return vrState.playerPosition;
+}
+
+void SetPlayerYaw(float yaw) {
+    vrState.playerYaw = yaw;
+}
+
+float GetPlayerYaw(void) {
+    return vrState.playerYaw;
+}
+
+void MovePlayer(float forward, float strafe, float up) {
+    // Convert yaw to radians
+    float yawRad = vrState.playerYaw * PI / 180.0f;
+    
+    // Calculate movement direction based on player yaw
+    float sinYaw = sinf(yawRad);
+    float cosYaw = cosf(yawRad);
+    
+    // Forward is -Z in OpenGL convention
+    vrState.playerPosition.x += -sinYaw * forward + cosYaw * strafe;
+    vrState.playerPosition.z += -cosYaw * forward - sinYaw * strafe;
+    vrState.playerPosition.y += up;
+}
+
+bool IsPlayerGrounded(float groundHeight) {
+    return vrState.playerPosition.y <= groundHeight;
 }
 
 // =============================================================================
