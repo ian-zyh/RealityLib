@@ -1601,9 +1601,9 @@ static void DrawCubeInternal(Vector3 position, Vector3 size, Vector3 color) {
     
     glUseProgram(shaderProgram);
     
-    // Create model matrix
-    Matrix model = MatrixMultiply(MatrixTranslate(position.x, position.y, position.z),
-                                   MatrixScale(size.x, size.y, size.z));
+    // Create model matrix: scale first, then translate
+    Matrix model = MatrixMultiply(MatrixScale(size.x, size.y, size.z),
+                                   MatrixTranslate(position.x, position.y, position.z));
     
     // Create MVP matrix
     Matrix mvp = MatrixMultiply(MatrixMultiply(model, vrState.currentViewMatrix), vrState.currentProjectionMatrix);

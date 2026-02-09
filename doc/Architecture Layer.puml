@@ -1,0 +1,80 @@
+@startuml RealityLib Architecture
+
+skinparam componentStyle rectangle
+skinparam backgroundColor #FEFEFE
+skinparam component {
+    BackgroundColor<<user>> #E1F5FE
+    BackgroundColor<<lib>> #C8E6C9
+    BackgroundColor<<platform>> #FFE0B2
+    BackgroundColor<<hardware>> #F8BBD9
+}
+
+title RealityLib VR Framework - Architecture Layer Diagram
+
+package "Application Layer" <<user>> #E3F2FD {
+    [main.c\nUser Application\n- Game Logic\n- World Initialization\n- Scene Rendering\n- Input Handling] as UserApp
+}
+
+package "RealityLib Framework Layer" <<lib>> #E8F5E9 {
+    package "VR Core Module" {
+        [realitylib_vr.h\nVR Public API Interface] as VRHeader
+        [realitylib_vr.c\nVR Core Implementation\n- OpenXR Session Management\n- Render Loop\n- Controller Input\n- Player Movement] as VRCore
+    }
+    
+    package "Hand Tracking Module" {
+        [realitylib_hands.h\nHand Tracking API Interface] as HandsHeader
+        [realitylib_hands.c\nHand Tracking Implementation\n- Skeletal Tracking\n- Gesture Recognition\n- Joint Data] as HandsCore
+    }
+    
+    VRHeader -[hidden]down- VRCore
+    HandsHeader -[hidden]down- HandsCore
+    HandsCore --> VRCore : Depends on VR State
+}
+
+package "Graphics & XR Platform Layer" <<platform>> #FFF3E0 {
+    package "OpenXR Runtime" {
+        [OpenXR Loader\n(libopenxr_loader.so)\n- XR Instance Management\n- Session Lifecycle\n- Action System] as OpenXR
+        [XR_EXT_hand_tracking\nHand Tracking Extension] as HandTrackingExt
+    }
+    
+    package "Graphics API" {
+        [OpenGL ES 3.0\n(libGLESv3.so)\n- Shaders\n- Geometry Rendering\n- Framebuffers] as OpenGLES
+        [EGL\n(libEGL.so)\n- Context Management\n- Surface Management] as EGL
+    }
+    
+    package "Android Native" {
+        [android_native_app_glue\n- App Lifecycle\n- Event Handling] as NativeGlue
+        [Android NDK\n- Logging\n- Native Window] as NDK
+    }
+}
+
+package "Hardware Layer" <<hardware>> #FCE4EC {
+    [Meta Quest Device\n- HMD Display\n- Controllers\n- Hand Tracking Sensors\n- 6DoF Tracking] as Hardware
+}
+
+' Connections
+UserApp -r-> VRHeader : Calls VR API
+UserApp -r-> HandsHeader : Calls Hand Tracking API
+
+VRCore --> OpenXR : XR Session/Rendering
+VRCore --> OpenGLES : 3D Rendering
+VRCore --> EGL : Context
+VRCore --> NativeGlue : App Lifecycle
+
+HandsCore --> OpenXR : Hand Tracking Data
+HandsCore --> HandTrackingExt : XR Extension
+
+OpenXR --> Hardware : Device Interaction
+OpenGLES --> Hardware : Graphics Output
+EGL --> NDK
+NativeGlue --> NDK
+
+legend right
+  |= Layer |= Description |
+  | Application | User application code |
+  | Framework | RealityLib library |
+  | Platform | System APIs/Drivers |
+  | Hardware | Physical device |
+endlegend
+
+@enduml
