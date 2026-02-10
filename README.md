@@ -377,7 +377,61 @@ void android_main(struct android_app* app) {
 }
 ```
 
+## VSCode / Editor Setup (fixing "missing header" errors)
+
+If you open this project in **VSCode** (or Cursor) and see red squiggles for missing headers like `<android/log.h>`, `<openxr/openxr.h>`, or `<android_native_app_glue.h>`, do the following:
+
+1. **Set the Android NDK path** so the C/C++ extension can find system headers:
+   - **Windows:** Set environment variable `ANDROID_NDK_HOME` to your NDK folder, e.g.  
+     `C:\Users\<You>\AppData\Local\Android\Sdk\ndk\29.0.14206865`
+   - **Mac/Linux:** In `~/.zshrc` or `~/.bashrc`:  
+     `export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"`  
+     (or the path where your NDK is installed)
+   - **Can’t find the NDK?** See [Where is the NDK?](#where-is-the-ndk-finding-android_ndk_home) below for default paths and how to find it (e.g. via Android Studio SDK settings or `local.properties`).
+   - Restart VSCode after changing the variable.
+
+2. **OpenXR headers:** Run the dependency setup script so OpenXR headers are present:
+   - `./scripts/setup_deps.sh` (Mac/Linux)  
+   - Or manually place OpenXR headers under `app/src/main/deps/OpenXR-SDK/include/openxr/` (see script for URLs).
+
+3. **Select the right configuration:** In VSCode, open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`), run **C/C++: Select a Configuration**, and choose **Win32**, **Linux**, or **Mac** to match your OS.
+
+The project includes a `.vscode/c_cpp_properties.json` that points IntelliSense to the project sources, OpenXR includes, and NDK sysroot when `ANDROID_NDK_HOME` is set.
+
 ## Troubleshooting
+
+### Where is the NDK? (finding ANDROID_NDK_HOME)
+
+The **Android NDK** is installed *inside* your Android SDK, in an `ndk` folder. This project needs **NDK version 29.0.14206865**.
+
+**Default locations** (replace `<YourUsername>` with your login name):
+
+| OS      | Typical NDK path |
+|---------|-------------------|
+| **Windows** | `C:\Users\<YourUsername>\AppData\Local\Android\Sdk\ndk\29.0.14206865` |
+| **Mac**     | `~/Library/Android/sdk/ndk/29.0.14206865` or `$HOME/Library/Android/sdk/ndk/29.0.14206865` |
+| **Linux**   | `~/Android/Sdk/ndk/29.0.14206865` or `$ANDROID_HOME/ndk/29.0.14206865` |
+
+**How to find your SDK (and then the NDK):**
+
+1. **If you use Android Studio:**  
+   - Open **File → Settings** (or **Android Studio → Preferences** on Mac).  
+   - Go to **Languages & Frameworks → Android SDK**.  
+   - The top line shows **Android SDK Location** (e.g. `C:\Users\...\AppData\Local\Android\Sdk`).  
+   - The NDK is the folder: **`<that path>\ndk\29.0.14206865`**.
+
+2. **If the project builds with Gradle:**  
+   - After a successful build, check **`local.properties`** in the project root (it’s generated and often in `.gitignore`).  
+   - It contains a line like `sdk.dir=C\:\\Users\\...\\AppData\\Local\\Android\\Sdk`.  
+   - Your NDK path is: **`<that path>\ndk\29.0.14206865`** (use forward slashes or escaped backslashes as required).
+
+3. **If the NDK folder doesn’t exist:**  
+   - Install NDK **29.0.14206865** via Android Studio: **Settings → Android SDK → SDK Tools** tab → check **NDK (Side by side)** and the version **29.0.14206865**, then Apply.  
+   - Or from the command line (with `sdkmanager` on your PATH):  
+     `sdkmanager "ndk;29.0.14206865"`
+
+**Set it for VSCode:**  
+Set the environment variable `ANDROID_NDK_HOME` to that full path (e.g. the path ending in `ndk\29.0.14206865`), then restart VSCode. See [VSCode / Editor Setup](#vscode--editor-setup-fixing-missing-header-errors) above.
 
 ### Build Errors
 
@@ -389,6 +443,7 @@ void android_main(struct android_app* app) {
 
 **"NDK not found"**
 - Install NDK r29: `sdkmanager "ndk;29.0.14206865"`
+- Then set `ANDROID_NDK_HOME` to the path in [Where is the NDK?](#where-is-the-ndk-finding-android_ndk_home) above (for builds, Gradle uses the SDK from Android Studio or `local.properties`; the env var is mainly for the editor).
 
 ### Runtime Errors
 
