@@ -17,6 +17,7 @@
  */
 
 #include "realitylib_vr.h"
+#include "realitylib_text.h"
 #include <android/log.h>
 #include <math.h>
 #include <string.h>
@@ -37,7 +38,7 @@
 
 #define MAX_CUBES           12
 #define MAX_FRAGMENTS       200
-#define BLADE_LENGTH        0.5f
+#define BLADE_LENGTH        0.8f
 #define BLADE_TRAIL_SIZE    12
 
 // Rubik's cube appearance
@@ -90,8 +91,10 @@ typedef enum {
 typedef struct {
     Vector3   position;
     Vector3   velocity;
-    float     rotation;         // Y-axis rotation (radians)
-    float     rotationSpeed;
+    float     rotationY;        // Y-axis rotation (radians)
+    float     rotationX;        // X-axis rotation (radians)
+    float     rotationSpeedY;
+    float     rotationSpeedX;
     int       flipCount;
     CubeState state;
     float     lifetime;
@@ -147,6 +150,7 @@ typedef struct {
 
     Vector3    gameCenter;          // Player's XZ position at game start (stage space)
     float      gameFacing;          // Player's yaw at game start (radians, 0 = facing -Z)
+    bool       gameCenterValid;     // True once gameCenter has been captured from a valid headset pose
 
     bool       initialized;
     bool       handTrackingEnabled;
@@ -184,6 +188,29 @@ static float Clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+// Calculate closest distance from point to line segment
+static float DistancePointToSegment(Vector3 point, Vector3 segA, Vector3 segB) {
+    Vector3 ab = Vector3Subtract(segB, segA);
+    Vector3 ap = Vector3Subtract(point, segA);
+    
+    float abLen2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z;
+    if (abLen2 < 0.0001f) {
+        // Segment is essentially a point
+        return Vector3Distance(point, segA);
+    }
+    
+    float t = (ap.x * ab.x + ap.y * ab.y + ap.z * ab.z) / abLen2;
+    t = Clampf(t, 0.0f, 1.0f);
+    
+    Vector3 closest = Vector3Create(
+        segA.x + t * ab.x,
+        segA.y + t * ab.y,
+        segA.z + t * ab.z
+    );
+    
+    return Vector3Distance(point, closest);
+}
+
 // =============================================================================
 // Random Number Generator
 // =============================================================================
@@ -215,142 +242,6 @@ static Color RandBrightColor(void) {
 }
 
 // =============================================================================
-// Pixel Font - 3x5 Bitmap (for VR HUD text and scores)
-// =============================================================================
-
-// Each row: 3 bits, bit2=left, bit1=center, bit0=right
-static const unsigned char fontDigits[10][5] = {
-    {7,5,5,5,7}, {2,6,2,2,7}, {7,1,7,4,7}, {7,1,7,1,7}, {5,5,7,1,1},
-    {7,4,7,1,7}, {7,4,7,5,7}, {7,1,1,1,1}, {7,5,7,5,7}, {7,5,7,1,7}
-};
-
-static const unsigned char fontAlpha[26][5] = {
-    {2,5,7,5,5}, // A
-    {6,5,6,5,6}, // B
-    {3,4,4,4,3}, // C
-    {6,5,5,5,6}, // D
-    {7,4,7,4,7}, // E
-    {7,4,6,4,4}, // F
-    {7,4,5,5,7}, // G
-    {5,5,7,5,5}, // H
-    {7,2,2,2,7}, // I
-    {1,1,1,5,2}, // J
-    {5,6,4,6,5}, // K
-    {4,4,4,4,7}, // L
-    {5,7,7,5,5}, // M
-    {5,7,7,5,5}, // N
-    {7,5,5,5,7}, // O
-    {7,5,7,4,4}, // P
-    {7,5,5,7,1}, // Q
-    {7,5,7,6,5}, // R
-    {7,4,7,1,7}, // S
-    {7,2,2,2,2}, // T
-    {5,5,5,5,7}, // U
-    {5,5,5,5,2}, // V
-    {5,5,5,7,5}, // W
-    {5,5,2,5,5}, // X
-    {5,5,2,2,2}, // Y
-    {7,1,2,4,7}  // Z
-};
-
-static const unsigned char* GetFontBitmap(char ch) {
-    if (ch >= '0' && ch <= '9') return fontDigits[ch - '0'];
-    if (ch >= 'A' && ch <= 'Z') return fontAlpha[ch - 'A'];
-    if (ch >= 'a' && ch <= 'z') return fontAlpha[ch - 'a'];
-    return NULL;
-}
-
-static void DrawPixelChar(char ch, Vector3 origin, float pixSize, Color color,
-                          float faceAngle) {
-    const unsigned char* bmp = GetFontBitmap(ch);
-    if (!bmp || pixSize < 0.001f) return;
-    float step = pixSize * 1.25f;
-    float cosA = cosf(faceAngle);
-    float sinA = sinf(faceAngle);
-    for (int row = 0; row < 5; row++) {
-        unsigned char bits = bmp[row];
-        for (int col = 0; col < 3; col++) {
-            if (bits & (4 >> col)) {
-                float rx = col * step;
-                Vector3 p = Vector3Create(
-                    origin.x + rx * cosA,
-                    origin.y - row * step,
-                    origin.z + rx * sinA
-                );
-                DrawVRCube(p, pixSize, color);
-            }
-        }
-    }
-}
-
-static float GetTextWidth(const char* text, float pixSize) {
-    float step = pixSize * 1.25f;
-    float cw   = 3.0f * step + step;
-    float w    = 0;
-    for (int i = 0; text[i]; i++) {
-        w += (text[i] == ' ') ? cw * 0.7f : cw;
-    }
-    return w;
-}
-
-static void DrawPixelText(const char* text, Vector3 origin, float pixSize,
-                          Color color, float faceAngle) {
-    float step = pixSize * 1.25f;
-    float cw   = 3.0f * step + step;
-    float cosA = cosf(faceAngle);
-    float sinA = sinf(faceAngle);
-    Vector3 pos = origin;
-    for (int i = 0; text[i]; i++) {
-        if (text[i] == ' ') {
-            float adv = cw * 0.7f;
-            pos.x += adv * cosA;
-            pos.z += adv * sinA;
-            continue;
-        }
-        DrawPixelChar(text[i], pos, pixSize, color, faceAngle);
-        pos.x += cw * cosA;
-        pos.z += cw * sinA;
-    }
-}
-
-static void DrawTextCentered(const char* text, float cx, float y, float cz,
-                              float pixSize, Color color, float faceAngle) {
-    float w    = GetTextWidth(text, pixSize);
-    float cosA = cosf(faceAngle);
-    float sinA = sinf(faceAngle);
-    Vector3 start = Vector3Create(cx - w * 0.5f * cosA, y, cz - w * 0.5f * sinA);
-    DrawPixelText(text, start, pixSize, color, faceAngle);
-}
-
-static void DrawNumberAt(int number, Vector3 origin, float pixSize, Color color,
-                         float faceAngle) {
-    char buf[16];
-    int len = 0, n = number < 0 ? 0 : number;
-    if (n == 0) { buf[len++] = '0'; }
-    else {
-        char tmp[16]; int tl = 0;
-        while (n > 0 && tl < 15) { tmp[tl++] = '0' + (n % 10); n /= 10; }
-        for (int i = tl - 1; i >= 0; i--) buf[len++] = tmp[i];
-    }
-    buf[len] = '\0';
-    DrawPixelText(buf, origin, pixSize, color, faceAngle);
-}
-
-static void DrawNumberCentered(int number, float cx, float y, float cz,
-                                float pixSize, Color color, float faceAngle) {
-    char buf[16];
-    int len = 0, n = number < 0 ? 0 : number;
-    if (n == 0) { buf[len++] = '0'; }
-    else {
-        char tmp[16]; int tl = 0;
-        while (n > 0 && tl < 15) { tmp[tl++] = '0' + (n % 10); n /= 10; }
-        for (int i = tl - 1; i >= 0; i--) buf[len++] = tmp[i];
-    }
-    buf[len] = '\0';
-    DrawTextCentered(buf, cx, y, cz, pixSize, color, faceAngle);
-}
-
-// =============================================================================
 // Initialization
 // =============================================================================
 
@@ -363,23 +254,14 @@ static void InitGame(void) {
     game.lives       = MAX_LIVES;
     game.spawnTimer  = 1.0f;
     game.deltaTime   = 1.0f / 72.0f;
-    game.initialized = true;
+    game.initialized     = true;
+    game.gameCenterValid = false;  // Will be captured once headset tracking is valid
 
     // Player stands still - all gameplay in stage space
     SetPlayerPosition(Vector3Create(0, 0, 0));
     SetPlayerYaw(0);
 
-    // Capture player's physical position and facing direction in stage space.
-    // All game objects will spawn relative to this, so the game works
-    // regardless of where the player stands within their Guardian boundary.
-    VRHeadset hd = GetHeadset();
-    game.gameCenter = Vector3Create(hd.position.x, 0, hd.position.z);
-    Vector3 fwd = QuaternionForward(hd.orientation);
-    game.gameFacing = atan2f(-fwd.x, fwd.z);
-
     LOGI("=== CUBE SLICE VR - Game started! ===");
-    LOGI("Player center: (%.2f, %.2f)  facing: %.1f deg",
-         game.gameCenter.x, game.gameCenter.z, game.gameFacing * 180.0f / PI);
 }
 
 // =============================================================================
@@ -396,8 +278,8 @@ static void SpawnCube(void) {
     SliceCube* c = &game.cubes[slot];
     memset(c, 0, sizeof(SliceCube));
 
-    // Spawn in a wide arc around the player's actual position
-    float angle  = RandRange(-PI * 0.8f, PI * 0.8f) + game.gameFacing;
+    // Spawn in an arc in front of the player (~120° cone)
+    float angle  = RandRange(-PI * 0.33f, PI * 0.33f) + game.gameFacing;
     float radius = RandRange(1.0f, SPAWN_RADIUS);
 
     c->position = Vector3Create(
@@ -406,15 +288,36 @@ static void SpawnCube(void) {
         game.gameCenter.z - cosf(angle) * radius
     );
 
+    // Calculate lateral velocity based on spawn offset from center
+    // Cubes spawn farther from center get more lateral velocity toward center
+    float offsetX = c->position.x - game.gameCenter.x;
+    float offsetZ = c->position.z - game.gameCenter.z;
+    float offsetDist = sqrtf(offsetX * offsetX + offsetZ * offsetZ);
+    
+    // Lateral speed proportional to distance from center
+    float lateralSpeed = offsetDist * 0.9f;
+    
+    // Direction points toward center (-offset direction)
+    float lateralDirX = 0.0f;
+    float lateralDirZ = 0.0f;
+    if (offsetDist > 0.001f) {
+        lateralDirX = -offsetX / offsetDist;
+        lateralDirZ = -offsetZ / offsetDist;
+    }
+    
+    // Main upward velocity
     float speed = RandRange(LAUNCH_SPEED_MIN, LAUNCH_SPEED_MAX);
+    
     c->velocity = Vector3Create(
-        RandRange(-0.5f, 0.5f),
+        lateralDirX * lateralSpeed,
         speed,
-        RandRange(-0.3f, 0.3f)
+        lateralDirZ * lateralSpeed
     );
 
-    c->rotation      = RandFloat() * 2.0f * PI;
-    c->rotationSpeed = RandRange(1.5f, 4.0f) * (RandFloat() > 0.5f ? 1.0f : -1.0f);
+    c->rotationY      = RandFloat() * 2.0f * PI;
+    c->rotationX      = RandFloat() * 2.0f * PI;
+    c->rotationSpeedY = RandRange(2.0f, 6.0f) * (RandFloat() > 0.5f ? 1.0f : -1.0f);
+    c->rotationSpeedX = RandRange(1.5f, 4.0f) * (RandFloat() > 0.5f ? 1.0f : -1.0f);
     c->color         = RandBrightColor();
     c->state         = CUBE_FLYING;
     c->active        = true;
@@ -439,8 +342,8 @@ static void SpawnFragments(SliceCube* cube, Vector3 bladeVelocity) {
         float oy = rubikOff[i][1] * CUBE_GRID_STEP;
         float oz = rubikOff[i][2] * CUBE_GRID_STEP;
 
-        float cosA = cosf(cube->rotation);
-        float sinA = sinf(cube->rotation);
+        float cosA = cosf(cube->rotationY);
+        float sinA = sinf(cube->rotationY);
         float rx =  ox * cosA + oz * sinA;
         float rz = -ox * sinA + oz * cosA;
 
@@ -505,21 +408,28 @@ static void SpawnScoreEffect(Vector3 pos, int count) {
 // Drawing - Rubik's Cube
 // =============================================================================
 
-static void DrawRubikCube(Vector3 center, float rotY, Color color, float flash) {
+static void DrawRubikCube(Vector3 center, float rotY, float rotX, Color color, float flash) {
     float step = CUBE_GRID_STEP;
     float bs   = CUBE_BLOCK_SIZE;
+
+    float cosY = cosf(rotY), sinY = sinf(rotY);
+    float cosX = cosf(rotX), sinX = sinf(rotX);
 
     for (int i = 0; i < RUBIK_COUNT; i++) {
         float ox = rubikOff[i][0] * step;
         float oy = rubikOff[i][1] * step;
         float oz = rubikOff[i][2] * step;
 
-        float cosA = cosf(rotY);
-        float sinA = sinf(rotY);
-        float rx =  ox * cosA + oz * sinA;
-        float rz = -ox * sinA + oz * cosA;
+        // Rotate around X axis first
+        float y1 =  oy * cosX - oz * sinX;
+        float z1 =  oy * sinX + oz * cosX;
 
-        Vector3 blockPos = Vector3Add(center, Vector3Create(rx, oy, rz));
+        // Then rotate around Y axis
+        float rx =  ox * cosY + z1 * sinY;
+        float ry =  y1;
+        float rz = -ox * sinY + z1 * cosY;
+
+        Vector3 blockPos = Vector3Add(center, Vector3Create(rx, ry, rz));
 
         Color bc = color;
         if (flash > 0.0f) {
@@ -556,9 +466,6 @@ static void DrawBlade(int hand, VRController ctrl) {
 
     // Blade line
     DrawVRLine3D(ctrl.position, bladeEnd, col);
-
-    // Tip glow
-    DrawVRSphere(bladeEnd, 0.015f, WHITE);
 
     // Trail
     BladeState* b = &game.blades[hand];
@@ -714,7 +621,7 @@ static void DrawGameOverScreen(void) {
     float bgCz = game.gameCenter.z - cosF * (goDist + 0.15f);
 
     // Background sphere
-    float pulse = 0.25f + sinf(game.gameTime * 3.0f) * 0.05f;
+    float pulse = 0.10f + sinf(game.gameTime * 3.0f) * 0.03f;
     DrawVRSphere(Vector3Create(bgCx, 1.5f, bgCz), pulse * t,
                  (Color){60, 10, 10, 255});
 
@@ -771,7 +678,8 @@ static void UpdatePhysics(void) {
 
         c->velocity.y += GAME_GRAVITY * dt;
         c->position = Vector3Add(c->position, Vector3Scale(c->velocity, dt));
-        c->rotation += c->rotationSpeed * dt;
+        c->rotationY += c->rotationSpeedY * dt;
+        c->rotationX += c->rotationSpeedX * dt;
         c->lifetime += dt;
         if (c->flashTimer > 0) c->flashTimer -= dt;
         if (c->hitCooldown > 0) c->hitCooldown -= dt;
@@ -868,13 +776,18 @@ static void CheckCollisions(void) {
     for (int hand = 0; hand < 2; hand++) {
         BladeState* b = &game.blades[hand];
         if (!b->tracking || !b->hasPrevTip) continue;
+        
+        VRController ctrl = GetController(hand);
+        Vector3 bladeStart = ctrl.position;
+        Vector3 bladeEnd = b->tipPosition;
 
         for (int i = 0; i < MAX_CUBES; i++) {
             SliceCube* c = &game.cubes[i];
             if (!c->active || c->state != CUBE_FLYING) continue;
             if (c->hitCooldown > 0) continue;
 
-            float dist = Vector3Distance(b->tipPosition, c->position);
+            // Check distance from cube to entire blade line segment
+            float dist = DistancePointToSegment(c->position, bladeStart, bladeEnd);
             if (dist > HIT_DISTANCE) continue;
 
             if (b->speed >= SLICE_SPEED_THRESH) {
@@ -906,12 +819,30 @@ static void CheckCollisions(void) {
             } else if (b->speed >= FLIP_SPEED_MIN && b->speed < FLIP_SPEED_MAX) {
                 // ==================== FLIP ====================
                 c->flipCount++;
-                c->velocity.y += 2.0f;
-                c->velocity.x += RandRange(-0.4f, 0.4f);
-                c->velocity.z += RandRange(-0.4f, 0.4f);
+                
+                // Calculate direction toward game center
+                float offsetX = c->position.x - game.gameCenter.x;
+                float offsetZ = c->position.z - game.gameCenter.z;
+                float offsetDist = sqrtf(offsetX * offsetX + offsetZ * offsetZ);
+                
+                // Lateral velocity toward center, proportional to distance
+                float lateralSpeed = offsetDist * 0.5f;
+                float lateralDirX = 0.0f;
+                float lateralDirZ = 0.0f;
+                if (offsetDist > 0.001f) {
+                    lateralDirX = -offsetX / offsetDist;
+                    lateralDirZ = -offsetZ / offsetDist;
+                }
+                
+                // Set velocity with small random variation
+                c->velocity.y = 2.0f;
+                c->velocity.x = lateralDirX * lateralSpeed + RandRange(-0.2f, 0.2f);
+                c->velocity.z = lateralDirZ * lateralSpeed + RandRange(-0.2f, 0.2f);
                 c->flashTimer    = 0.3f;
                 c->hitCooldown   = FLIP_COOLDOWN;
-                c->rotationSpeed *= 1.4f;
+                c->rotationSpeedY *= 1.4f;
+                c->rotationSpeedX *= 1.4f;
+                c->color         = RandBrightColor();
 
                 TriggerVRHaptic(hand, 0.15f, 0.08f);
 
@@ -991,6 +922,25 @@ void inLoop(struct android_app* app) {
                    : 1.0f / 72.0f;
     game.gameTime += game.deltaTime;
 
+    // Deferred capture of player center: wait until headset reports a valid
+    // non-zero position (OpenXR tracking may not be ready on the very first frame).
+    if (!game.gameCenterValid) {
+        float hx = headset.position.x;
+        float hy = headset.position.y;
+        float hz = headset.position.z;
+        // Headset at exactly (0,0,0) usually means tracking isn't ready yet;
+        // a real head position always has y > 0 (you're not lying on the floor).
+        if (hy > 0.1f || (hx * hx + hz * hz) > 0.01f) {
+            game.gameCenter = Vector3Create(hx, 0, hz);
+            Vector3 fwd = QuaternionForward(headset.orientation);
+            game.gameFacing = atan2f(-fwd.x, fwd.z);
+            game.gameCenterValid = true;
+            LOGI("Player center captured: (%.2f, %.2f)  facing: %.1f deg",
+                 game.gameCenter.x, game.gameCenter.z,
+                 game.gameFacing * 180.0f / PI);
+        }
+    }
+
     // Hand tracking update (if available)
     if (game.handTrackingEnabled) {
         UpdateHandTracking();
@@ -1018,7 +968,7 @@ void inLoop(struct android_app* app) {
         if (!c->active || c->state != CUBE_FLYING) continue;
 
         float flash = (c->flashTimer > 0) ? c->flashTimer / 0.3f : 0;
-        DrawRubikCube(c->position, c->rotation, c->color, flash);
+        DrawRubikCube(c->position, c->rotationY, c->rotationX, c->color, flash);
 
         // Flip-count golden orbs orbiting the cube
         for (int f = 0; f < c->flipCount && f < 5; f++) {
