@@ -21,23 +21,51 @@ echo ""
 echo "=== Step 1: Downloading OpenXR SDK headers ==="
 OPENXR_VERSION="1.1.38"
 OPENXR_DOWNLOAD_URL="https://github.com/KhronosGroup/OpenXR-SDK/archive/refs/tags/release-${OPENXR_VERSION}.zip"
+TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t realitylib-deps)"
+ZIP_PATH="${TMP_DIR}/OpenXR-SDK-release-${OPENXR_VERSION}.zip"
+EXTRACT_DIR="${TMP_DIR}/OpenXR-SDK"
 
-cd /tmp
-if [ ! -f "OpenXR-SDK-release-${OPENXR_VERSION}.zip" ] || [ ! -s "OpenXR-SDK-release-${OPENXR_VERSION}.zip" ]; then
-    echo "Downloading OpenXR SDK ${OPENXR_VERSION}..."
-    curl -k -L -o "OpenXR-SDK-release-${OPENXR_VERSION}.zip" "$OPENXR_DOWNLOAD_URL"
-fi
+cleanup() {
+    rm -rf "${TMP_DIR}" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
-if [ -s "OpenXR-SDK-release-${OPENXR_VERSION}.zip" ]; then
-    echo "Extracting OpenXR SDK headers..."
-    rm -rf "OpenXR-SDK-release-${OPENXR_VERSION}"
-    unzip -q -o "OpenXR-SDK-release-${OPENXR_VERSION}.zip"
-    cp -r "OpenXR-SDK-release-${OPENXR_VERSION}/include/openxr" "$DEPS_DIR/OpenXR-SDK/include/"
-    rm -rf "OpenXR-SDK-release-${OPENXR_VERSION}"
-    echo "✓ OpenXR headers installed"
-else
+echo "Downloading OpenXR SDK ${OPENXR_VERSION}..."
+if ! curl -fL --retry 3 --retry-delay 2 -o "${ZIP_PATH}" "${OPENXR_DOWNLOAD_URL}"; then
     echo "✗ Failed to download OpenXR headers"
+    echo "  URL: ${OPENXR_DOWNLOAD_URL}"
+    exit 1
 fi
+
+# Validate that what we downloaded is actually a zip (GitHub can return HTML on 404/blocked network/etc.)
+if ! unzip -tq "${ZIP_PATH}" >/dev/null 2>&1; then
+    echo "✗ Downloaded file is not a valid zip archive"
+    echo "  URL: ${OPENXR_DOWNLOAD_URL}"
+    echo "  Saved as: ${ZIP_PATH}"
+    echo "  Tip: If you're behind a proxy/captive portal, the download may be an HTML page."
+    exit 1
+fi
+
+echo "Extracting OpenXR SDK headers..."
+mkdir -p "${EXTRACT_DIR}"
+unzip -q -o "${ZIP_PATH}" -d "${EXTRACT_DIR}"
+
+SDK_ROOT_GLOB=("${EXTRACT_DIR}"/OpenXR-SDK-*)
+SDK_ROOT="${SDK_ROOT_GLOB[0]}"
+if [ ! -d "${SDK_ROOT}" ]; then
+    echo "✗ Could not find extracted OpenXR-SDK directory"
+    exit 1
+fi
+
+if [ ! -f "${SDK_ROOT}/include/openxr/openxr.h" ]; then
+    echo "✗ Extracted OpenXR headers not found at expected path:"
+    echo "  ${SDK_ROOT}/include/openxr/openxr.h"
+    exit 1
+fi
+
+rm -rf "$DEPS_DIR/OpenXR-SDK/include/openxr"
+cp -R "${SDK_ROOT}/include/openxr" "$DEPS_DIR/OpenXR-SDK/include/"
+echo "✓ OpenXR headers installed"
 
 # Check for OpenXR loader
 echo ""

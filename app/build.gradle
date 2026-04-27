@@ -53,6 +53,10 @@ android {
         }
     }
     
+    buildFeatures {
+        prefab true
+    }
+    
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
@@ -70,6 +74,9 @@ dependencies {
     
     // Also add to our custom configuration so we can extract it
     openxrLoader 'org.khronos.openxr:openxr_loader_for_android:1.1.51'
+    
+    // Low-latency audio (AAudio) via Prefab
+    implementation 'com.google.oboe:oboe:1.10.0'
 }
 
 // Task to extract the OpenXR loader .so file from the AAR for CMake to link against

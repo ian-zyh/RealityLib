@@ -12,6 +12,7 @@
  */
 
 #include "realitylib_vr.h"
+#include "realitylib_audio.h"
 #include <android/log.h>
 #include <math.h>
 
@@ -72,6 +73,9 @@ typedef struct {
 } WorldState;
 
 static WorldState world = {0};
+
+// Audio
+static AudioClipHandle s_jumpSfx = AUDIO_INVALID_HANDLE;
 
 // =============================================================================
 // Helper Functions
@@ -613,6 +617,10 @@ static void HandleInput(void) {
         world.jumpReady = false;
         TriggerVRHaptic(CONTROLLER_RIGHT, 0.5f, 0.1f);
         LOGI("Jump! Velocity: %.2f", world.playerVelocityY);
+        if (s_jumpSfx != AUDIO_INVALID_HANDLE) {
+            Vector3 pos = GetPlayerPosition();
+            PlayOneShot3D(s_jumpSfx, pos, 0.8f);
+        }
     }
     if (!rightController.buttonA) {
         world.jumpReady = true;
@@ -715,6 +723,11 @@ void inLoop(struct android_app* app) {
     // Update time (approximate 72Hz)
     world.deltaTime = 1.0f / 72.0f;
     world.time += world.deltaTime;
+
+    // Update audio listener (headset pose) and drain deferred frees
+    VRHeadset headset = GetHeadset();
+    SetAudioListenerPose(headset.position, headset.orientation);
+    UpdateAudioEngine(world.deltaTime);
     
     // Update hand tracking (if enabled)
     if (world.handTrackingEnabled) {
@@ -777,6 +790,13 @@ void android_main(struct android_app* app) {
         return;
     }
     LOGI("VR Application Initialized Successfully");
+
+    // Initialize audio (optional)
+    if (InitAudioEngine(0, 0)) {
+        SetAudioAssetManager((void*)app->activity->assetManager);
+        // Add a WAV at: app/src/main/assets/sfx/jump.wav
+        s_jumpSfx = LoadAudioClip("sfx/jump.wav", AUDIOCLIP_DECODE_TO_PCM);
+    }
     
     // Initialize hand tracking (optional - will gracefully fail if not supported)
     if (InitHandTracking()) {
@@ -814,6 +834,7 @@ void android_main(struct android_app* app) {
     
     // Cleanup VR
     LOGI("Shutting down VR Application...");
+    ShutdownAudioEngine();
     CloseApp(app);
     LOGI("VR Application Closed");
 }

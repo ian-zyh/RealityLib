@@ -9,6 +9,7 @@ A lightweight VR framework that makes it easy to create VR applications for Meta
 - **Quest Optimized** - Built specifically for Meta Quest 2/3/Pro
 - **Full Controller Support** - Triggers, grips, thumbsticks, buttons, and haptics
 - **Hand Tracking** - Full skeletal hand tracking with gesture detection (pinch, fist, point)
+- **3D Audio (AAudio/Oboe)** - Simple spatial audio engine (WAV SFX via Android assets)
 - **Minimal Dependencies** - Only requires Android NDK and OpenXR loader
 
 ## Quick Start
@@ -217,6 +218,31 @@ bool IsHandOpen(ControllerHand hand);
 // Visualization helpers
 void DrawHandSkeleton(ControllerHand hand, Color color);
 void DrawHandJoints(ControllerHand hand, Color color);
+```
+
+### Audio Functions (3D SFX)
+
+Add audio files under `app/src/main/assets/` (example: `app/src/main/assets/sfx/jump.wav`).
+
+```c
+#include "realitylib_audio.h"
+
+// After InitApp(app)
+InitAudioEngine(0, 0);
+SetAudioAssetManager((void*)app->activity->assetManager);
+
+AudioClipHandle jump = LoadAudioClip("sfx/jump.wav", AUDIOCLIP_DECODE_TO_PCM);
+
+// Each frame (listener = headset)
+VRHeadset hmd = GetHeadset();
+SetAudioListenerPose(hmd.position, hmd.orientation);
+UpdateAudioEngine(dt);
+
+// Play a one-shot at a world position
+PlayOneShot3D(jump, GetPlayerPosition(), 0.8f);
+
+// On shutdown
+ShutdownAudioEngine();
 ```
 
 ### Hand Joint Indices

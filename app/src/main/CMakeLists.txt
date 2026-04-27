@@ -4,8 +4,9 @@
 cmake_minimum_required(VERSION 3.22.1)
 
 # Project configuration
-project(realitylib C)
+project(realitylib C CXX)
 set(CMAKE_C_STANDARD 99)
+set(CMAKE_CXX_STANDARD 17)
 
 # =============================================================================
 # OpenXR Setup
@@ -29,6 +30,12 @@ set(REALITYLIB_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/realitylib_vr.c
     ${CMAKE_CURRENT_SOURCE_DIR}/realitylib_hands.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/audio_ringbuffer.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/audio_decoder.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/audio_spatializer_simple.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/audio_mixer.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/audio_engine.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/android_audio_backend_oboe.cpp
 )
 
 # Add android_native_app_glue
@@ -74,6 +81,7 @@ endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio
     ${OPENXR_INCLUDE_DIR}
     ${ANDROID_NDK}/sources/android/native_app_glue
 )
@@ -90,6 +98,10 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     GLESv3
     m
 )
+
+# Oboe (AAudio) audio backend via Prefab
+find_package(oboe REQUIRED CONFIG)
+target_link_libraries(${PROJECT_NAME} PRIVATE oboe::oboe)
 
 # Find the OpenXR loader (extracted from AAR by Gradle)
 set(OPENXR_LOADER "${OPENXR_LIB_DIR}/libopenxr_loader.so")
